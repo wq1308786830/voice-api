@@ -1,0 +1,5 @@
+# Install CosyVoice and its model dependencies from the official repository first.
+fastapi==0.115.6
+pydantic==2.7.0
+numpy==1.26.4
+uvicorn==0.30.0
