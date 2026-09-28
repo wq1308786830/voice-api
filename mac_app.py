@@ -92,7 +92,9 @@ class MacBackend:
         sample_rate = self._model.sample_rate
         if type(sample_rate) is not int or sample_rate != 24000:
             raise RuntimeError("CosyVoice3 MLX model must use 24000 Hz audio")
-        self._reference_audio = self._reference_loader(self.reference_wav, sample_rate)
+        self._reference_cache = {
+            self.reference_wav: self._reference_loader(self.reference_wav, sample_rate)
+        }
         return sample_rate
 
     def inference_zero_shot(self, text, prompt_text, prompt_wav, *, stream=False, speed=1.0):
@@ -103,17 +105,21 @@ class MacBackend:
         ).result()
 
     def _infer(self, text, prompt_text, prompt_wav, stream, speed):
-        if stream or Path(prompt_wav).resolve() != self.reference_wav:
-            raise ValueError("unsupported stream mode or reference WAV")
+        if stream:
+            raise ValueError("unsupported stream mode")
         if not prompt_text.startswith(PROMPT_PREFIX):
             raise ValueError("missing CosyVoice3 reference prompt prefix")
         transcript = prompt_text[len(PROMPT_PREFIX) :]
         if not transcript:
             raise ValueError("reference transcript is empty")
+        reference_path = Path(prompt_wav).resolve()
+        if reference_path not in self._reference_cache:
+            self._reference_cache[reference_path] = self._reference_loader(reference_path, self.sample_rate)
+        reference_audio = self._reference_cache[reference_path]
         segments = []
         for result in self._model.generate(
             text=text,
-            ref_audio=self._reference_audio,
+            ref_audio=reference_audio,
             ref_text=transcript,
             stream=False,
             verbose=False,
@@ -137,13 +143,16 @@ class MacBackend:
 
     def _dispose(self):
         model = getattr(self, "_model", None)
-        if model is not None:
-            close = getattr(model, "close", None)
-            if callable(close):
-                close()
-            del self._model
-        if hasattr(self, "_reference_audio"):
-            del self._reference_audio
+        try:
+            if model is not None:
+                close = getattr(model, "close", None)
+                if callable(close):
+                    close()
+        finally:
+            if model is not None:
+                del self._model
+            if hasattr(self, "_reference_cache"):
+                self._reference_cache.clear()
 
     def close(self):
         if self._closed:

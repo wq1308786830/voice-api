@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 LOG = logging.getLogger(__name__)
 PROMPT_PREFIX = "You are a helpful assistant.<|endofprompt|>"
+VOICE_REFERENCES = {"academic": "academic", "zeng_shiqiang": "zeng_voice"}
 
 
 class SpeechRequest(BaseModel):
@@ -39,8 +40,8 @@ class SpeechRequest(BaseModel):
     @field_validator("voice")
     @classmethod
     def validate_voice(cls, value: str) -> str:
-        if value != "default":
-            raise ValueError("only voice=default is supported")
+        if value not in ("default", *VOICE_REFERENCES):
+            raise ValueError("voice must be default, academic or zeng_shiqiang")
         return value
 
     @field_validator("response_format")
@@ -127,8 +128,14 @@ def create_app(
             transcript = reference_text.strip()
         if not transcript:
             raise RuntimeError("reference transcript must not be empty")
-        app.state.reference_wav = wav
-        app.state.prompt_text = PROMPT_PREFIX + transcript
+        app.state.voices = {"default": (wav, PROMPT_PREFIX + transcript)}
+        reference_dir = Path(__file__).resolve().parent / "reference"
+        for voice, stem in VOICE_REFERENCES.items():
+            voice_wav = reference_dir / f"{stem}.wav"
+            voice_text = (reference_dir / f"{stem}.txt").read_text(encoding="utf-8-sig").strip()
+            if not voice_wav.is_file() or not voice_text:
+                raise RuntimeError(f"Missing reference audio or transcript for {voice}")
+            app.state.voices[voice] = (str(voice_wav), PROMPT_PREFIX + voice_text)
         app.state.api_key = api_key if api_key is not None else os.getenv("TTS_API_KEY")
         app.state.lock = threading.Lock()
         app.state.model = (backend_factory or _load_backend)()
@@ -159,11 +166,12 @@ def create_app(
             raise HTTPException(status_code=429, detail="Synthesis busy", headers={"Retry-After": "1"})
         try:
             model = app.state.model
+            prompt_wav, prompt_text = app.state.voices[request.voice]
             audio = _wav_bytes(
                 model.inference_zero_shot(
                     request.input,
-                    app.state.prompt_text,
-                    app.state.reference_wav,
+                    prompt_text,
+                    prompt_wav,
                     stream=False,
                     speed=request.speed,
                 ),

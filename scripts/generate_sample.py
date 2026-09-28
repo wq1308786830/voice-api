@@ -15,8 +15,8 @@ AI_NOTICE = "这是一段人工智能合成的声音示例。"
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--reference", type=Path, default=ROOT / "reference/reference.wav")
-    parser.add_argument("--transcript", type=Path, default=ROOT / "reference/reference.txt")
+    parser.add_argument("--reference", type=Path, default=ROOT / "reference/zeng_voice.wav")
+    parser.add_argument("--transcript", type=Path, default=ROOT / "reference/zeng_voice.txt")
     parser.add_argument("--text-file", type=Path, default=ROOT / "samples/试听文案.txt")
     parser.add_argument("--output", type=Path, default=ROOT / "generated/ai-sample.wav")
     parser.add_argument("--seed", type=int, default=42)

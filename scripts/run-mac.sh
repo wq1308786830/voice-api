@@ -15,8 +15,8 @@ fi
 
 export MLX_MODEL_DIR="$RUNTIME/models/model"
 export MLX_TOKENIZER_DIR="$RUNTIME/models/tokenizer"
-export REFERENCE_WAV="${REFERENCE_WAV:-$ROOT/reference/reference.wav}"
-export REFERENCE_TEXT_FILE="${REFERENCE_TEXT_FILE:-$ROOT/reference/reference.txt}"
+export REFERENCE_WAV="${REFERENCE_WAV:-$ROOT/reference/zeng_voice.wav}"
+export REFERENCE_TEXT_FILE="${REFERENCE_TEXT_FILE:-$ROOT/reference/zeng_voice.txt}"
 export HF_HOME="$RUNTIME/cache/huggingface"
 export XDG_CACHE_HOME="$RUNTIME/cache"
 export NUMBA_CACHE_DIR="$RUNTIME/cache/numba"

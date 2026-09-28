@@ -14,10 +14,11 @@ from pathlib import Path
 
 
 def synthesize(
-    input_text: str, output: Path, url: str, speed: float, api_key: str | None, timeout: float = 600
+    input_text: str, output: Path, url: str, speed: float, api_key: str | None, timeout: float = 600,
+    voice: str = "default",
 ) -> None:
     payload = json.dumps(
-        {"input": input_text, "voice": "default", "speed": speed, "response_format": "wav"},
+        {"input": input_text, "voice": voice, "speed": speed, "response_format": "wav"},
         ensure_ascii=False,
     ).encode("utf-8")
     headers = {"Content-Type": "application/json"}
@@ -61,6 +62,7 @@ def main() -> int:
     parser.add_argument("--output", required=True, type=Path, help="output WAV path")
     parser.add_argument("--url", default="http://127.0.0.1:8000", help="API base URL")
     parser.add_argument("--speed", type=float, default=1.0)
+    parser.add_argument("--voice", choices=("default", "academic", "zeng_shiqiang"), default="default")
     parser.add_argument("--timeout", type=float, default=600, help="request timeout in seconds")
     parser.add_argument("--api-key", default=os.getenv("TTS_API_KEY"))
     args = parser.parse_args()
@@ -75,6 +77,7 @@ def main() -> int:
             args.speed,
             args.api_key,
             args.timeout,
+            voice=args.voice,
         )
     except (OSError, RuntimeError) as exc:
         print(f"Error: {exc}", file=sys.stderr)

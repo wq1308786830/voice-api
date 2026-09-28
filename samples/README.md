@@ -10,7 +10,7 @@
 
 参考音色生成服务：[FunAudioLLM/Fun-CosyVoice3-0.5B](https://huggingface.co/spaces/FunAudioLLM/Fun-CosyVoice3-0.5B)，`zero_shot` 模式，随机种子 42；生成日期 2026-09-28。
 
-这些是 AI 合成音频，文案不是曾仕强本人原话。在线生成已成功，解码和语音转写核对已完成；相似度和自然度仍需人工试听评价。本地 API 的模型部署尚未完成，不能将在线结果当成本地 GPU 推理验收。
+这些是历史 AI 合成音频，文案不是曾仕强本人原话。在线生成已成功，解码和语音转写核对已完成；相似度和自然度仍需人工试听评价。Windows 本地 CPU 部署现已完成，但本目录的在线结果不能当成本地 GPU 推理验收。当前默认使用清理后的曾仕强参考（`reference/zeng_voice.wav`），学术理法派仍可手动选择；这里保留旧试听以说明其真实来源。
 
 ## 重新生成
 
@@ -21,7 +21,7 @@ python -m pip install -r requirements-sample.txt
 python scripts/generate_sample.py
 ```
 
-默认读取项目中的参考声音和原创文案，输出到被 Git 忽略的 `generated/ai-sample.wav`。也可用 `--reference`、`--transcript`、`--text-file`、`--output`、`--seed` 指定参数。服务限制参考 WAV 最长 10 秒、采样率不低于 16 kHz，文案加合成提示最长 200 字符。没有稳定性或输出逐字节一致的保证。
+在线示例脚本现默认读取去除头尾背景的 `reference/zeng_voice.wav`、`reference/zeng_voice.txt` 和原创文案，输出到被 Git 忽略的 `generated/ai-sample.wav`。本目录既有样本仍是旧参考生成的历史结果；若需复现原参考条件，可用 `--reference reference/reference.wav --transcript reference/reference.txt` 明确指定。也可用 `--text-file`、`--output`、`--seed` 指定其他参数。在线服务限制参考 WAV 最长 10 秒、采样率不低于 16 kHz，文案加合成提示最长 200 字符，因此不应直接给它传入约 22.7 秒的当前学术理法派参考。没有稳定性或输出逐字节一致的保证。
 
 通用男声示例：
 

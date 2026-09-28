@@ -1,4 +1,5 @@
 import io
+import json
 import wave
 from pathlib import Path
 from urllib.error import HTTPError
@@ -71,6 +72,54 @@ def test_wav_uses_model_sample_rate_and_all_segments(app, backend):
         assert (wav.getframerate(), wav.getnchannels(), wav.getsampwidth(), wav.getnframes()) == (22050, 1, 2, 4)
         assert np.frombuffer(wav.readframes(4), dtype="<i2").tolist() == [0, 16384, -32767, 32767]
     assert backend.calls == [("你好，世界！", PROMPT_PREFIX + "示例参考文本", "reference.wav", False, 0.8)]
+
+
+def test_switches_reference_and_transcript_together(app, backend):
+    root = Path(__file__).resolve().parents[1] / "reference"
+    with TestClient(app) as http:
+        for voice in ("academic", "zeng_shiqiang", "academic", "default"):
+            assert post(http, voice=voice).status_code == 200
+    for call, stem in zip(backend.calls[:3], ("academic", "zeng_voice", "academic")):
+        assert Path(call[2]) == root / f"{stem}.wav"
+        assert call[1] == PROMPT_PREFIX + (root / f"{stem}.txt").read_text(encoding="utf-8-sig").strip()
+    assert backend.calls[0] == backend.calls[2]
+    assert backend.calls[3][1:3] == (PROMPT_PREFIX + "示例参考文本", "reference.wav")
+
+
+def test_client_cli_sends_selected_voice(tmp_path, monkeypatch, app, backend):
+    from email.message import Message
+
+    class Response:
+        headers = Message()
+        headers["Content-Type"] = "audio/wav"
+
+        def __init__(self, content):
+            self.content = content
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+        def read(self):
+            return self.content
+
+    with TestClient(app) as http:
+        def send(request, **kwargs):
+            response = http.post("/v1/audio/speech", json=json.loads(request.data), headers=dict(request.header_items()))
+            assert response.status_code == 200
+            return Response(response.content)
+
+        monkeypatch.setattr(client.urllib.request, "urlopen", send)
+        for voice in ("academic", "zeng_shiqiang"):
+            output = tmp_path / f"{voice}.wav"
+            monkeypatch.setattr(client.sys, "argv", ["client.py", "--text", "你好", "--voice", voice, "--output", str(output), "--api-key", "secret"])
+            assert client.main() == 0
+            with wave.open(str(output)) as wav:
+                assert wav.getnframes() > 0
+    assert Path(backend.calls[0][2]).name == "academic.wav"
+    assert Path(backend.calls[1][2]).name == "zeng_voice.wav"
 
 
 @pytest.mark.parametrize(

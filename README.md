@@ -2,7 +2,7 @@
 
 让程序发送中文文案，接收完整 WAV 文件。调用程序可运行在 macOS、Windows 或 Linux。当前机器使用 Windows + WSL2 Ubuntu 的 CPU 部署；Linux + NVIDIA GPU 也可按下文通用步骤部署，但该路径尚未实测。操作系统本身不提升音质，主要区别是依赖兼容性、可用加速和生成速度。
 
-本项目包含服务代码、跨平台命令行客户端、测试、短参考录音与实际生成的试听文件，不包含模型权重。`samples/` 中的参考音色试听通过官方 CosyVoice3 在线演示生成；25 项本地测试（14 项 API、4 项 Windows 离线入口、7 项 Mac 适配）及 HTTP/CLI 联调使用测试替身。当前 Windows + WSL2 CPU 已完成真实模型加载和 HTTP 语音生成；GPU 性能未验证。运行本地服务需要配置模型、参考录音和逐字稿。
+本项目包含服务代码、跨平台命令行客户端、测试、短参考录音与实际生成的试听文件，不包含模型权重。`samples/` 中的参考音色试听通过官方 CosyVoice3 在线演示生成；29 项本地测试（16 项 API/客户端、4 项 Windows 离线入口、9 项 Mac 适配）使用测试替身。当前 Windows + WSL2 CPU 已完成真实模型加载和 HTTP 语音生成；GPU 性能未验证。运行本地服务需要配置模型、参考录音和逐字稿。
 
 先听效果和复现在线生成，请看 [试听说明](samples/README.md)；参考录音来源见 [来源记录](reference/SOURCE.md)。当前机器的本地启动方法见下一节；通用部署步骤随后给出。
 
@@ -33,7 +33,7 @@ afplay generated/mac-smoke.wav
 
 接口与 Windows 相同：`POST http://127.0.0.1:8000/v1/audio/speech` 返回 WAV；健康检查为 `GET /health`。停止时在服务终端按 `Ctrl+C`，下次只需重新运行 `bash scripts/run-mac.sh`；本包不配置开机自启。`benchmark-local.py` 需要接口已经就绪，计时不含模型启动耗时。`samples/` 内原有音频来自在线演示，不是 M5 实测结果。
 
-Mac 入口为 `mac_app:app`。所有 MLX 加载、生成和清理在同一个专用工作线程执行。模型与 S3TokenizerV3 的版本固定在 `mac-models.json`，安装时分别下载到本地；启动时启用 Hugging Face / Transformers 离线模式，并显式加载本地 S3 权重。使用包内的 `reference/reference.wav` 与对应逐字稿进行参考音色生成；合成音频不代表本人原始录音。
+Mac 入口为 `mac_app:app`。所有 MLX 加载、生成和清理在同一个专用工作线程执行。模型与 S3TokenizerV3 的版本固定在 `mac-models.json`，安装时分别下载到本地；启动时启用 Hugging Face / Transformers 离线模式，并显式加载本地 S3 权重。默认使用包内去除头尾背景的曾仕强参考 `reference/zeng_voice.wav` 与 `reference/zeng_voice.txt`。学术理法派仍保留，可通过 `voice: "academic"` 选择。来源及参数见 `reference/SOURCE.md`。API 的 `voice: "default"` 使用启动时配置的参考；Windows 当前本地服务也已切换为清理后的曾仕强参考。
 
 此固定移植会忽略原始 `speed` 参数，因此 Mac 适配层用 librosa 对整段音频做保留音高的时间伸缩，实现接口的 0.5–2.0 倍速；与 Windows 的模型内部调速方法不同。Mac 文本规范化也不同于 Windows 的 wetext，对日期、金额、多音字等建议写明期望读法并试听。`requirements-mac.txt` 是针对 macOS 14 ARM64 / Python 3.11 解析的固定依赖清单；不要替换为同名 PyPI `mlx-audio-plus==0.1.8`，其依赖与这里固定的源码版本不同。
 
@@ -71,7 +71,24 @@ Mac 入口为 `mac_app:app`。所有 MLX 加载、生成和清理在同一个专
 }
 ```
 
-成功返回 `200 audio/wav`，响应体就是音频文件，不是文件路径或 JSON。输出为单声道、16 位 PCM，采样率采用模型实际值。`voice` 目前只能是 `default`，指向服务启动时配置的参考声音；没有内置名人声音库。
+成功返回 `200 audio/wav`，响应体就是音频文件，不是文件路径或 JSON。输出为单声道、16 位 PCM，采样率采用模型实际值。Windows 和 Mac 共用以下音色参数，同一服务中可以逐次切换，无需重新加载模型：
+
+| `voice` | 参考音色 |
+| --- | --- |
+| `default`（省略时使用） | 启动配置中的参考；当前 Windows 和 Mac 部署包默认均为清理后的曾仕强参考音色 |
+| `academic` | 本次选定的学术理法派，`reference/academic.wav` 与对应逐字稿 |
+| `zeng_shiqiang` | 曾仕强讲座的人声片段，`reference/zeng_voice.wav` 与对应逐字稿；已移除原参考的头尾背景区 |
+
+两份参考音频、逐字稿及来源均保留在包内。`default` 仍允许通过 `REFERENCE_WAV` 与 `REFERENCE_TEXT_FILE` 自定义；另外两个明确的音色名始终选择包内对应参考。未知音色返回 HTTP 422。曾仕强参考的来源说明仍见 `reference/SOURCE.md`，合成结果不代表本人原始录音。
+
+曾仕强音色改用 5.24 秒的完整讲述片段，去除旧参考开头约 2.9 秒的背景区和句后的残留片段，并在切点加 5 毫秒渐变防止点击声。Windows、Mac 和在线示例脚本均使用清理后的参考，旧的 `reference/reference.wav` 只保留作来源记录。清理可通过 `python scripts/prepare_zeng_reference.py` 复现；不按固定时长裁剪生成结果，以免切掉正文。既有试听文件不会自动重写。此处理消除已发现的参考头尾问题，不能保证生成模型对所有文案绝不产生非语音伪影。
+
+命令行客户端用 `--voice` 选择（Mac 将 `python` 换为 `.runtime-mac/venv/bin/python`）：
+
+```bash
+python client.py --voice academic --text "读易经，可以慢慢来。" --output generated/academic.wav
+python client.py --voice zeng_shiqiang --text "读易经，可以慢慢来。" --output generated/zeng-shiqiang.wav
+```
 
 - `input`：去除首尾空白后不能为空，最多 5000 字符；保持用户文案，分句由模型处理。
 - `speed`：0.5–2.0，1.0 为正常语速，默认 1.0。
@@ -188,7 +205,7 @@ python -m pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-本次在 Windows / Python 3.12.14 验证：25 项测试通过，其中 14 项覆盖接口、4 项覆盖 Windows 离线入口、7 项覆盖 Mac 适配与线程生命周期；另通过真实本地 HTTP + 命令行客户端联调，检查了带 BOM 的中文 UTF-8 文件输入、24 kHz WAV 输出、鉴权失败时保留原文件。这些验证均使用测试替身，未加载 CosyVoice 权重，测试音频不作为语音效果样本。测试出现一条第三方 Starlette/AnyIO 弃用警告，不影响本次通过结果。WSL2 CPU 的真实模型验证结果见下文；GPU 路径未实测。
+本次在 Windows / Python 3.12.14 验证：29 项测试通过，其中 16 项覆盖接口/客户端、4 项覆盖 Windows 离线入口、9 项覆盖 Mac 适配与线程生命周期，包括交替切换音色时参考音频与逐字稿配对、客户端音色参数透传、Mac 参考缓存与失败恢复。此前另通过真实本地 HTTP + 命令行客户端联调，检查了带 BOM 的中文 UTF-8 文件输入、24 kHz WAV 输出、鉴权失败时保留原文件。这些验证均使用测试替身，未加载 CosyVoice 权重，测试音频不作为语音效果样本。测试出现一条第三方 Starlette/AnyIO 弃用警告，不影响本次通过结果。WSL2 CPU 的真实模型验证结果见下文；GPU 路径未实测。
 
 2026-09-28 在当前 Windows + WSL2 机器完成真实模型验证：
 
@@ -199,6 +216,8 @@ python -m pytest -q
 - 本地 wetext 实测将 `2026年9月28日` 转成“二零二六年九月二十八日”，将 `$12.50` 转成 `twelve point five dollars`；模型及这些文本规则从本机加载。
 
 还需用目标文案验证：中文多音字和数字、漏读与重复、短句与长段落、语速、音色一致性、耗时和显存峰值。不能仅凭 HTTP 200 判断声音已经符合预期。
+
+双音色切换实测（同日、同一 Windows CPU 服务连续请求，无重启）：同一文案“这是一段人工智能合成语音。读易经，可以慢慢来。”使用 `academic` 输出 5.32 秒语音，请求耗时 38.121 秒；使用 `zeng_shiqiang` 输出 7.32 秒语音，请求耗时 25.483 秒。此结果验证两个参考均可调用，不是音质评分或稳定性能基准；Mac 尚未实机验证。
 
 ## 依据
 

@@ -28,7 +28,7 @@ class FakeModel:
         self.events.append(("close", threading.get_ident()))
 
 
-def make_backend(tmp_path, monkeypatch, events, *, model=None):
+def make_backend(tmp_path, monkeypatch, events, *, model=None, reference_loader=None):
     monkeypatch.setattr(mac_app, "_check_platform", lambda: object())
     reference = tmp_path / "reference.wav"
     reference.write_bytes(b"reference")
@@ -46,7 +46,8 @@ def make_backend(tmp_path, monkeypatch, events, *, model=None):
         return np.zeros(24000, dtype=np.float32)
 
     backend = mac_app.MacBackend(
-        tmp_path, tokenizer, reference, model_loader=load_model, reference_loader=load_reference
+        tmp_path, tokenizer, reference, model_loader=load_model,
+        reference_loader=reference_loader or load_reference,
     )
     return backend, reference
 
@@ -93,6 +94,62 @@ def test_speed_change_stretches_combined_audio(tmp_path, monkeypatch):
         assert calls[0][0].shape == (6,)
         assert calls[0][1] == 1.5
         assert calls[0][2] == events[0][1]
+    finally:
+        backend.close()
+
+
+def test_alternating_references_keep_audio_and_transcript_paired_on_worker(tmp_path, monkeypatch):
+    events = []
+    loaded = {}
+
+    def load_reference(path, sample_rate):
+        events.append(("reference", threading.get_ident(), path, sample_rate))
+        audio = np.full(24000, len(loaded) + 1, dtype=np.float32)
+        loaded[path] = audio
+        return audio
+
+    backend, first = make_backend(tmp_path, monkeypatch, events, reference_loader=load_reference)
+    second = tmp_path / "academic.wav"
+    second.write_bytes(b"other reference")
+    requests = [(first, "曾仕强逐字稿"), (second, "学术音色逐字稿"),
+                (first, "曾仕强逐字稿"), (second, "更新的学术逐字稿")]
+    try:
+        for path, transcript in requests:
+            backend.inference_zero_shot("待生成文案", mac_app.PROMPT_PREFIX + transcript, path)
+        generate_events = [event for event in events if event[0] == "generate"]
+        for event, (path, transcript) in zip(generate_events, requests, strict=True):
+            assert event[2]["ref_audio"] is loaded[path.resolve()]
+            assert event[2]["ref_text"] == transcript
+        assert [event[2] for event in events if event[0] == "reference"] == [first.resolve(), second.resolve()]
+        assert len([event for event in events if event[0] == "load"]) == 1
+    finally:
+        backend.close()
+    backend.close()
+    assert len({event[1] for event in events}) == 1
+    assert len([event for event in events if event[0] == "close"]) == 1
+    assert not backend._reference_cache
+    with pytest.raises(RuntimeError, match="closed"):
+        backend.inference_zero_shot("待生成文案", mac_app.PROMPT_PREFIX + "逐字稿", first)
+
+
+def test_failed_reference_load_is_not_cached_and_other_voice_still_works(tmp_path, monkeypatch):
+    events = []
+    attempts = []
+
+    def load_reference(path, sample_rate):
+        attempts.append(path)
+        if path.name == "missing.wav":
+            raise ValueError("invalid reference audio")
+        return np.zeros(sample_rate, dtype=np.float32)
+
+    backend, reference = make_backend(tmp_path, monkeypatch, events, reference_loader=load_reference)
+    missing = tmp_path / "missing.wav"
+    try:
+        for _ in range(2):
+            with pytest.raises(ValueError, match="invalid reference audio"):
+                backend.inference_zero_shot("你好", mac_app.PROMPT_PREFIX + "逐字稿", missing)
+        assert attempts.count(missing.resolve()) == 2
+        assert backend.inference_zero_shot("你好", mac_app.PROMPT_PREFIX + "逐字稿", reference)
     finally:
         backend.close()
 
