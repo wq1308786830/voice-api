@@ -1,0 +1,12 @@
+{
+  "model": {
+    "repo_id": "mlx-community/Fun-CosyVoice3-0.5B-2512-4bit",
+    "revision": "55a6713d54751f1ec2645aa11294676f2067202a",
+    "files": ["config.json", "model.safetensors", "tokenizer.json", "tokenizer_config.json", "README.md"]
+  },
+  "tokenizer": {
+    "repo_id": "mlx-community/S3TokenizerV3",
+    "revision": "b143914b3e912278104824da706edc9c2d317c4e",
+    "files": ["config.json", "model.safetensors", "README.md"]
+  }
+}

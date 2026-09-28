@@ -12,3 +12,5 @@ Thumbs.db
 pretrained_models/
 generated/
 *.zip
+.local-service.pid
+.runtime-mac/

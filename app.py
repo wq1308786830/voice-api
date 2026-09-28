@@ -90,7 +90,7 @@ def _wav_bytes(segments, sample_rate: int) -> bytes:
     samples = []
     for segment in segments:
         tensor = segment["tts_speech"]
-        array = np.asarray(tensor.detach().cpu().numpy())
+        array = tensor if isinstance(tensor, np.ndarray) else np.asarray(tensor.detach().cpu().numpy())
         if array.ndim == 2 and array.shape[0] == 1:
             array = array[0]
         if array.ndim != 1 or not array.size or not np.issubdtype(array.dtype, np.floating):
@@ -135,7 +135,12 @@ def create_app(
         try:
             yield
         finally:
-            del app.state.model
+            try:
+                close = getattr(app.state.model, "close", None)
+                if close is not None:
+                    close()
+            finally:
+                del app.state.model
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 

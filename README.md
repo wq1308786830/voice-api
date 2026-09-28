@@ -1,10 +1,62 @@
 # 文案转语音 API
 
-让程序发送中文文案，接收完整 WAV 文件。调用程序可运行在 macOS、Windows 或 Linux；推荐将 CosyVoice 模型服务部署在 Linux + NVIDIA GPU，Windows 可使用 WSL2。操作系统本身不提升音质，主要区别是依赖兼容性、可用加速和生成速度。
+让程序发送中文文案，接收完整 WAV 文件。调用程序可运行在 macOS、Windows 或 Linux。当前机器使用 Windows + WSL2 Ubuntu 的 CPU 部署；Linux + NVIDIA GPU 也可按下文通用步骤部署，但该路径尚未实测。操作系统本身不提升音质，主要区别是依赖兼容性、可用加速和生成速度。
 
-本项目包含服务代码、跨平台命令行客户端、测试、短参考录音与实际生成的试听文件，不包含模型权重。`samples/` 中的参考音色试听通过官方 CosyVoice3 在线演示生成；本地 API 测试使用测试替身，本地模型部署和 GPU 性能仍未验证。运行本地服务需要配置模型、参考录音和逐字稿。
+本项目包含服务代码、跨平台命令行客户端、测试、短参考录音与实际生成的试听文件，不包含模型权重。`samples/` 中的参考音色试听通过官方 CosyVoice3 在线演示生成；25 项本地测试（14 项 API、4 项 Windows 离线入口、7 项 Mac 适配）及 HTTP/CLI 联调使用测试替身。当前 Windows + WSL2 CPU 已完成真实模型加载和 HTTP 语音生成；GPU 性能未验证。运行本地服务需要配置模型、参考录音和逐字稿。
 
-先听效果和复现在线生成，请看 [试听说明](samples/README.md)；参考录音来源见 [来源记录](reference/SOURCE.md)。本地服务部署步骤如下。
+先听效果和复现在线生成，请看 [试听说明](samples/README.md)；参考录音来源见 [来源记录](reference/SOURCE.md)。当前机器的本地启动方法见下一节；通用部署步骤随后给出。
+
+## MacBook M5 / 32GB 部署包
+
+Mac 版使用社区 [mlx-audio-plus](https://github.com/DePasqualeOrg/mlx-audio-plus/tree/4c9ec6a8489e790b5ba8964ab1f1d63150476f9f) 的 CosyVoice3 移植，通过 MLX 使用 Apple Metal GPU。采用 [CosyVoice3 的 MLX 4bit 转换模型](https://huggingface.co/mlx-community/Fun-CosyVoice3-0.5B-2512-4bit)，其中语言模型部分量化为 4 位，其他模块并非全部 4 位。32GB 是本部署包的目标配置；**尚未在你的 M5 上运行真实模型，不能据此承诺生成速度、峰值内存或与 Windows 完全相同的音色。**
+
+将部署 ZIP 复制到 Mac 并解压，在终端进入解压后的 `voice-api` 目录。要求 macOS 14 或更新版本、原生 arm64 终端（不要通过 Rosetta 运行）。初次安装需要访问 GitHub、PyPI 和 Hugging Face；模型与分词器约 2.2GB，连同运行环境与缓存建议预留至少 10GB 磁盘空间。
+
+```bash
+# 在解压后的 voice-api 目录执行；无需先安装 Python、Homebrew 或 CUDA。
+bash scripts/setup-mac.sh
+bash scripts/run-mac.sh
+```
+
+安装脚本把 uv、Python 3.11、独立环境和模型放在项目的 `.runtime-mac/`，不需要 sudo。保留该目录即可复用下载。运行脚本保持前台运行；看到 `Application startup complete` 后，在另一个终端进入同一项目目录执行：
+
+```bash
+# 生成与 Windows 实测相同文案，输出音频和耗时 JSON。
+.runtime-mac/venv/bin/python scripts/benchmark-local.py
+afplay generated/mac-smoke.wav
+
+# 程序调用：输入自己的文案，输出 WAV。
+.runtime-mac/venv/bin/python client.py --text "这是一段人工智能合成语音。做事情，先想清楚，再一步一步去完成。" --output generated/result.wav
+# 或读取 UTF-8 文案文件。
+.runtime-mac/venv/bin/python client.py --text-file input.txt --output generated/result.wav --timeout 1200
+```
+
+接口与 Windows 相同：`POST http://127.0.0.1:8000/v1/audio/speech` 返回 WAV；健康检查为 `GET /health`。停止时在服务终端按 `Ctrl+C`，下次只需重新运行 `bash scripts/run-mac.sh`；本包不配置开机自启。`benchmark-local.py` 需要接口已经就绪，计时不含模型启动耗时。`samples/` 内原有音频来自在线演示，不是 M5 实测结果。
+
+Mac 入口为 `mac_app:app`。所有 MLX 加载、生成和清理在同一个专用工作线程执行。模型与 S3TokenizerV3 的版本固定在 `mac-models.json`，安装时分别下载到本地；启动时启用 Hugging Face / Transformers 离线模式，并显式加载本地 S3 权重。使用包内的 `reference/reference.wav` 与对应逐字稿进行参考音色生成；合成音频不代表本人原始录音。
+
+此固定移植会忽略原始 `speed` 参数，因此 Mac 适配层用 librosa 对整段音频做保留音高的时间伸缩，实现接口的 0.5–2.0 倍速；与 Windows 的模型内部调速方法不同。Mac 文本规范化也不同于 Windows 的 wetext，对日期、金额、多音字等建议写明期望读法并试听。`requirements-mac.txt` 是针对 macOS 14 ARM64 / Python 3.11 解析的固定依赖清单；不要替换为同名 PyPI `mlx-audio-plus==0.1.8`，其依赖与这里固定的源码版本不同。
+
+目前已完成依赖解析与二进制包可用性检查、Shell 语法检查以及不依赖 MLX 的替身测试。**Apple GPU 加载、真实语音、耗时和内存仍需在 Mac 上通过上述命令验收。** 下载中断可重跑安装脚本；启动失败时保留终端报错，并确认未占用本机 8000 端口。
+
+## 当前 Windows + WSL2 CPU 部署
+
+运行时已安装在 WSL Ubuntu 的 `/opt/voice-api-runtime`，使用 Python 3.10、PyTorch 2.3.1 CPU 版和固定到提交 `074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc` 的 CosyVoice。模型为 `Fun-CosyVoice3-0.5B-2512`，固定 revision `29e01c4e8d000f4bcd70751be16fa94bf3d85a18`，文件位于 Windows 工作目录 `work/local-model`，在 WSL 中对应 `/mnt/c/Users/Administrator/Documents/Codex/2026-09-28/wo-xi/work/local-model`。服务配置在 `/opt/voice-api-runtime/service.env`，由 systemd 的 `voice-api.service` 读取；其中的密钥如已配置，请勿复制到日志或文档。此机服务使用 `local_app:app` 作为入口。
+
+离线文本规范化资源目录由 `WETEXT_MODEL_DIR=/opt/voice-api-runtime/wetext` 指定。目录内需要 `en/tn` 和 `zh/tn` 各自的 `tagger.fst`、`verbalizer.fst`，共四个非空 FST 文件。这些资源来自 [wetext 官方 ModelScope Git 仓库](https://www.modelscope.cn/pengzhendong/wetext.git) 的 revision `030bb1febce0bd0168549a03e181cd9c1d70c799`；本次 ModelScope 下载遇到 HTTP 403，改由该 Git 仓库获取。`local_app.py` 仅在模型构造期间将 wetext 的资源解析器定向到本地目录，构造结束或报错后都会恢复原解析器；未修改第三方源码。
+
+在本项目目录的 Windows PowerShell 中手动控制服务：
+
+```powershell
+.\scripts\local-service.ps1 start
+.\scripts\local-service.ps1 status
+.\scripts\local-service.ps1 restart
+.\scripts\local-service.ps1 stop
+```
+
+服务设置为**不随开机自动启动**；重启 Windows 或 WSL 后需重新执行 `start`。`start` 和 `restart` 会启动一个隐藏的 `wsl sleep infinity` 进程，让 WSL 在空闲时保持运行；`stop` 会停止服务及脚本创建的保活进程，不会关闭整个 Ubuntu 发行版。服务只监听 `127.0.0.1:8000`，本机请求地址为 `http://127.0.0.1:8000`。首次启动需要加载模型，`start` 命令返回后可用 `status` 和 `GET /health` 检查准备状态；真实语音生成仍需按下文调用并试听。服务启停和 Windows 端 `/health` 已验证。模型权重仍在上述 `work/local-model` 目录，运行此服务时请保留该目录。
+
+如需在另一个 WSL Ubuntu 环境重建 CPU 依赖，项目提供 `requirements-local-cpu.txt` 与 `build-constraints-local-cpu.txt`。运行时固定 `setuptools==80.9.0`，因为当前 Lightning 依赖其中的 `pkg_resources`；构建约束另固定 `setuptools==80.9.0`、`numpy==1.26.4`。构建前还需安装系统包 `python3.10-dev`。这些文件用于当前 CPU 路径；下文 Linux + NVIDIA GPU 是单独的通用说明。
 
 ## 调用方式
 
@@ -29,9 +81,9 @@
 
 采用单模型、单请求推理模式。请只启动一个 worker。较长文案需要较长响应时间；本版生成完毕后一次性返回，不提供异步任务或流式播放。调用方收到 429 时，应等待响应中的 `Retry-After` 后重试。
 
-## 1. 准备 Linux 模型环境
+## 1. 准备 Linux + NVIDIA GPU 模型环境（未实测）
 
-下列命令是部署说明，尚未在当前机器完成 GPU 实测。需要已有可用的 NVIDIA 驱动和 Conda。使用独立环境，避免影响其他项目。
+下列命令是通用部署说明，尚未在当前机器完成 GPU 实测。需要已有可用的 NVIDIA 驱动和 Conda。使用独立环境，避免影响其他项目。
 
 ```bash
 git clone --recursive https://github.com/QwenAudio/CosyVoice.git
@@ -89,7 +141,7 @@ $env:TTS_API_KEY = 'replace-with-your-own-key'
 python -m uvicorn app:app --host 127.0.0.1 --port 8000 --workers 1
 ```
 
-macOS 和 Windows 的原生模型推理未验证，尤其不承诺 Apple GPU 加速。跨平台调用远程 Linux 服务不需要安装 CUDA、PyTorch 或 CosyVoice。
+Windows 原生模型推理未验证；Mac 的 MLX 部署方式见前文，尚待真机验收。跨平台调用远程 Linux 服务不需要安装 CUDA、PyTorch 或 CosyVoice。
 
 ## 3. 从任意系统调用
 
@@ -125,7 +177,7 @@ with urlopen(request, timeout=600) as response:
 Path("result.wav").write_bytes(audio)
 ```
 
-Node.js、Java、Go 等语言也按同一 HTTP 协议调用。示例地址均为占位的本机服务地址；项目交付不表示该地址已有模型服务运行。
+Node.js、Java、Go 等语言也按同一 HTTP 协议调用。当前 WSL2 部署使用上述本机地址；其他部署需替换为实际服务地址。
 
 ## 验证与限制
 
@@ -136,9 +188,17 @@ python -m pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-本次在 Windows / Python 3.12.14 验证：14 项接口测试通过；另通过真实本地 HTTP + 命令行客户端联调，检查了带 BOM 的中文 UTF-8 文件输入、24 kHz WAV 输出、鉴权失败时保留原文件。两类验证均使用测试替身，未加载 CosyVoice 权重，测试音频不作为语音效果样本。测试出现一条第三方 Starlette/AnyIO 弃用警告，不影响本次通过结果。
+本次在 Windows / Python 3.12.14 验证：25 项测试通过，其中 14 项覆盖接口、4 项覆盖 Windows 离线入口、7 项覆盖 Mac 适配与线程生命周期；另通过真实本地 HTTP + 命令行客户端联调，检查了带 BOM 的中文 UTF-8 文件输入、24 kHz WAV 输出、鉴权失败时保留原文件。这些验证均使用测试替身，未加载 CosyVoice 权重，测试音频不作为语音效果样本。测试出现一条第三方 Starlette/AnyIO 弃用警告，不影响本次通过结果。WSL2 CPU 的真实模型验证结果见下文；GPU 路径未实测。
 
-接入真实模型后还需用目标文案验证：中文多音字和数字、漏读与重复、短句与长段落、语速、音色一致性、耗时和显存峰值。不能仅凭 HTTP 200 判断声音已经符合预期。
+2026-09-28 在当前 Windows + WSL2 机器完成真实模型验证：
+
+- 服务使用 CPU、8 个计算线程；本机 HTTP 健康检查和语音生成均成功。
+- 文案：“这是一段在本地电脑生成的人工智能语音。遇到事情，先让自己静下来，再慢慢找到解决的方法。”
+- 模型已加载后的首次请求耗时 **34.664 秒**，输出 **10.64 秒**语音，RTF **3.258**（生成时间 / 音频时间）；这是单条样本，不能代表所有文案速度，也不含服务启动时间。
+- WAV 为 24 kHz、单声道、16 位 PCM，完整解码通过、音频非静音。试听位于项目上级输出目录的 `本地CPU_AI合成试听.wav`，属于 AI 合成录音。
+- 本地 wetext 实测将 `2026年9月28日` 转成“二零二六年九月二十八日”，将 `$12.50` 转成 `twelve point five dollars`；模型及这些文本规则从本机加载。
+
+还需用目标文案验证：中文多音字和数字、漏读与重复、短句与长段落、语速、音色一致性、耗时和显存峰值。不能仅凭 HTTP 200 判断声音已经符合预期。
 
 ## 依据
 

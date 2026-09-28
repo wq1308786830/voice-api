@@ -1,0 +1,8 @@
+# Apple Silicon only. Keep the source revision: the PyPI 0.1.8 package has
+# different dependencies and may install the overlapping mlx-audio namespace.
+-r requirements.txt
+mlx==0.32.2
+mlx-audio-plus @ https://github.com/DePasqualeOrg/mlx-audio-plus/archive/4c9ec6a8489e790b5ba8964ab1f1d63150476f9f.zip
+loguru==0.7.3
+einops==0.8.1
+num2words==0.5.14
